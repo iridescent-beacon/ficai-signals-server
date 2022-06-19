@@ -141,8 +141,8 @@ test404() {
   assertEquals 'HTTP/1.1 404 Not Found' "$( headers_line 1 )"
 }
 
-testUnauthorizedGet() {
-  request_get
+testUnauthorizedPatch() {
+  request_patch "$TEST_URL" +worm +taylor
   assertEquals 'HTTP/1.1 403 Forbidden' "$( headers_line 1 )"
   assertTrue "[[ ! -s \"$SHUNIT_TMPDIR/out\" ]]"
 }
@@ -229,6 +229,14 @@ testLogOutSecondTime() {
   assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
 }
 
+testUnauthorizedGetSignals() {
+  request_get
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertSignal worm null 1 0
+  assertSignal "taylor hebert" null 1 0
+  assertNoSignal taylor
+}
+
 testLogIn() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \
@@ -238,6 +246,14 @@ testLogIn() {
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
   assertEquals "$TEST_EMAIL1" "$( extractEmail )"
   assertEquals "$TEST_UID" "$( extractUid )"
+}
+
+testGetSignals() {
+  request_get
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertSignal worm true 1 0
+  assertSignal "taylor hebert" true 1 0
+  assertNoSignal taylor
 }
 
 testLogInWithWrongEmail() {

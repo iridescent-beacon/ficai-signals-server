@@ -75,6 +75,7 @@ paths:
         - signals
       security:
         - cookieAuth: []
+        - {}
       parameters:
         - name: url
           in: query

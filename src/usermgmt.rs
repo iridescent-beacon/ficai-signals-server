@@ -266,13 +266,15 @@ pub struct Session {
     pub user_id: i64,
 }
 
-pub fn authenticate(db: DB) -> impl Filter<Extract = (Session,), Error = Rejection> + Clone {
+pub fn optional_authenticate(
+    db: DB,
+) -> impl Filter<Extract = (Option<Session>,), Error = Rejection> + Clone {
     warp::cookie::optional(SESSION_COOKIE_NAME).and_then(move |cookie: Option<String>| {
         let db = db.clone();
         async move {
             let cookie = match cookie {
                 Some(cookie) => cookie,
-                None => return Err(warp::reject::custom(Forbidden)),
+                None => return Ok(None),
             };
             let cookie = match base64ct::Base64Unpadded::decode_vec(&cookie) {
                 Ok(cookie) => cookie,
@@ -288,18 +290,25 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (Session,), Error = Rejecti
                 .fetch_one(&db)
                 .await;
             match row {
-                Ok(row) => Ok(Session {
+                Ok(row) => Ok(Some(Session {
                     id: cookie,
                     user_id: row.get::<i64, _>("user_id"),
-                }),
-                Err(sqlx::error::Error::RowNotFound) => {
-                    return Err(warp::reject::custom(Forbidden))
-                }
+                })),
+                Err(sqlx::error::Error::RowNotFound) => Ok(None),
                 Err(e) => {
                     eprintln!("{:?}", e);
-                    return Err(warp::reject::custom(InternalError));
+                    Err(warp::reject::custom(InternalError))
                 }
             }
+        }
+    })
+}
+
+pub fn authenticate(db: DB) -> impl Filter<Extract = (Session,), Error = Rejection> + Clone {
+    optional_authenticate(db).and_then(|session| async {
+        match session {
+            Some(session) => Ok(session),
+            None => Err(warp::reject::custom(Forbidden)),
         }
     })
 }

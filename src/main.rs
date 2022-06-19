@@ -9,7 +9,7 @@ use sqlx::Row as _;
 use warp::{Filter as _, Reply};
 
 use crate::httputil::recover_custom;
-use crate::usermgmt::{authenticate, Session};
+use crate::usermgmt::{authenticate, optional_authenticate, Session};
 
 mod httputil;
 mod usermgmt;
@@ -90,13 +90,13 @@ async fn main() -> eyre::Result<()> {
             move |session| crate::usermgmt::get_session_user(session, pool.clone())
         });
 
-    let get = warp::path!("v1" / "signals")
+    let get_signals = warp::path!("v1" / "signals")
         .and(warp::get())
-        .and(authenticate(pool.clone()))
+        .and(optional_authenticate(pool.clone()))
         .and(warp::query::<GetQueryParams>())
         .then({
             let pool = pool.clone();
-            move |session, q: GetQueryParams| get(session, q.url, pool.clone())
+            move |session, q: GetQueryParams| get_signals(session, q.url, pool.clone())
         });
     let patch = warp::path!("v1" / "signals")
         .and(warp::patch())
@@ -122,7 +122,7 @@ async fn main() -> eyre::Result<()> {
             .or(log_in)
             .or(log_out)
             .or(get_session_user)
-            .or(get)
+            .or(get_signals)
             .or(patch)
             .or(get_urls)
             .or(get_tags)
@@ -155,7 +155,11 @@ struct Tags {
     tags: Vec<TagInfo>,
 }
 
-async fn get(session: Session, url: String, pool: DB) -> http::Response<hyper::Body> {
+async fn get_signals(
+    session: Option<Session>,
+    url: String,
+    pool: DB,
+) -> http::Response<hyper::Body> {
     let mut rows = sqlx::query(
         "
 select
@@ -168,7 +172,7 @@ where url = $2
 group by tag
 ",
     )
-    .bind(&session.user_id)
+    .bind(session.as_ref().map(|s| s.user_id))
     .bind(url)
     .fetch(&pool);
 
