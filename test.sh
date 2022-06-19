@@ -82,6 +82,10 @@ show_cookies() {
   cat test.cookies
 }
 
+extractEmail() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".email"
+}
+
 extractSignal() {
   <"$SHUNIT_TMPDIR/out" jq -r ".tags[]|select(.tag==\"$1\")"
 }
@@ -152,6 +156,7 @@ testCreateUser() {
 
   assertEquals 'HTTP/1.1 201 Created' "$( headers_line 1 )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
 }
 
 testCreateUserSecondTime() {
@@ -198,8 +203,9 @@ testLogIn() {
   request "http://$FICAI_LISTEN/v1/sessions" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
 
-  assertEquals 'HTTP/1.1 204 No Content' "$( headers_line 1 )"
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
 }
 
 testLogInWithWrongEmail() {
