@@ -73,6 +73,27 @@ paths:
       responses:
         '200':
           description: Success
+  /urls:
+    get:
+      summary: Get all known fic URLs.
+      operationId: getURLs
+      tags:
+        - urls
+      responses:
+        '200':
+          description: Known URLs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - urls
+                properties:
+                  urls:
+                    type: array
+                    items:
+                      type: string
+                      format: url
 components:
   securitySchemes:
     cookieAuth:
