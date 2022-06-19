@@ -9,7 +9,7 @@ use sqlx::Row as _;
 use warp::{Filter as _, Reply};
 
 use crate::httputil::recover_custom;
-use crate::usermgmt::authenticate;
+use crate::usermgmt::{authenticate, Session};
 
 mod httputil;
 mod usermgmt;
@@ -75,6 +75,13 @@ async fn main() -> eyre::Result<()> {
             let pool = pool.clone();
             move |q| crate::usermgmt::log_in(q, pool.clone(), pepper, domain)
         });
+    let get_session_user = warp::path!("v1" / "sessions")
+        .and(warp::get())
+        .and(authenticate(pool.clone()))
+        .and_then({
+            let pool = pool.clone();
+            move |session| crate::usermgmt::get_session_user(session, pool.clone())
+        });
 
     let get = warp::path!("v1" / "signals")
         .and(warp::get())
@@ -82,7 +89,7 @@ async fn main() -> eyre::Result<()> {
         .and(warp::query::<GetQueryParams>())
         .then({
             let pool = pool.clone();
-            move |uid, q: GetQueryParams| get(uid, q.url, pool.clone())
+            move |session, q: GetQueryParams| get(session, q.url, pool.clone())
         });
     let patch = warp::path!("v1" / "signals")
         .and(warp::patch())
@@ -90,7 +97,7 @@ async fn main() -> eyre::Result<()> {
         .and(warp::body::json::<PatchQuery>())
         .then({
             let pool = pool.clone();
-            move |uid, q: PatchQuery| patch(uid, q, pool.clone())
+            move |session, q: PatchQuery| patch(session, q, pool.clone())
         });
 
     let get_urls = warp::path!("v1" / "urls").and(warp::get()).then({
@@ -106,6 +113,7 @@ async fn main() -> eyre::Result<()> {
     warp::serve(
         create_user
             .or(log_in)
+            .or(get_session_user)
             .or(get)
             .or(patch)
             .or(get_urls)
@@ -139,7 +147,7 @@ struct Tags {
     tags: Vec<TagInfo>,
 }
 
-async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
+async fn get(session: Session, url: String, pool: DB) -> http::Response<hyper::Body> {
     let mut rows = sqlx::query(
         "
 select
@@ -152,7 +160,7 @@ where url = $2
 group by tag
 ",
     )
-    .bind(uid)
+    .bind(&session.user_id)
     .bind(url)
     .fetch(&pool);
 
@@ -183,7 +191,7 @@ struct PatchQuery {
     erase: Vec<String>,
 }
 
-async fn patch(uid: i64, q: PatchQuery, pool: DB) -> impl Reply {
+async fn patch(session: Session, q: PatchQuery, pool: DB) -> impl Reply {
     // todo: sane error handling
 
     for tag in q.add {
@@ -195,7 +203,7 @@ values ($1, $2, $3, $4)
 on conflict (user_id, url, tag) do update set signal = $4
         ",
         )
-        .bind(uid)
+        .bind(&session.user_id)
         .bind(&q.url)
         .bind(tag)
         .bind(true)
@@ -213,7 +221,7 @@ values ($1, $2, $3, $4)
 on conflict (user_id, url, tag) do update set signal = $4
         ",
         )
-        .bind(uid)
+        .bind(&session.user_id)
         .bind(&q.url)
         .bind(tag)
         .bind(false)
@@ -225,7 +233,7 @@ on conflict (user_id, url, tag) do update set signal = $4
     for tag in q.erase {
         println!("erase {}", &tag);
         sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
-            .bind(uid)
+            .bind(&session.user_id)
             .bind(&q.url)
             .bind(tag)
             .execute(&pool)

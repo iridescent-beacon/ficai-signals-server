@@ -7,6 +7,7 @@ TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
 TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
+TEST_UID="none"
 
 DEBUG=no
 
@@ -80,6 +81,10 @@ show_output() {
 
 show_cookies() {
   cat test.cookies
+}
+
+extractUid() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".id"
 }
 
 extractEmail() {
@@ -157,6 +162,7 @@ testCreateUser() {
   assertEquals 'HTTP/1.1 201 Created' "$( headers_line 1 )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
   assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  TEST_UID="$( extractUid )"
 }
 
 testCreateUserSecondTime() {
@@ -198,6 +204,15 @@ testErase() {
   assertNoSignal taylor
 }
 
+testGetSessionUser() {
+  request "http://$FICAI_LISTEN/v1/sessions"
+
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  assertEquals "$TEST_UID" "$( extractUid )"
+}
+
 testLogIn() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \
@@ -206,6 +221,7 @@ testLogIn() {
   assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
   assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  assertEquals "$TEST_UID" "$( extractUid )"
 }
 
 testLogInWithWrongEmail() {

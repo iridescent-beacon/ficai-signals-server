@@ -43,6 +43,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Account"
+    get:
+      summary: Get current account info.
+      operationId: getSessionAccount
+      tags:
+        - sessions
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
   /signals:
     get:
       summary: Get signals for a fic.

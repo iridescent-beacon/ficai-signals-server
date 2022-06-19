@@ -198,7 +198,42 @@ pub async fn log_in(
         .unwrap())
 }
 
-pub fn authenticate(db: DB) -> impl Filter<Extract = (i64,), Error = Rejection> + Clone {
+pub async fn get_session_user(session: Session, pool: DB) -> Result<Response<Body>, Rejection> {
+    let row = sqlx::query(r#"select email from "user" where id = $1"#)
+        .bind(&session.user_id)
+        .fetch_optional(&pool)
+        .await;
+    let email: String = match row {
+        Ok(Some(row)) => row.get("email"),
+        // This may mean the user was deleted inbetween validating their session and getting to
+        // this point, which means the current request is racing against a delete.
+        Ok(None) => return Err(warp::reject::custom(InternalError)),
+        Err(e) => {
+            eprintln!("{:?}", e);
+            return Err(warp::reject::custom(InternalError));
+        }
+    };
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .body(
+            json::to_string(&User {
+                id: session.user_id,
+                email: email,
+            })
+            .map_err(|_e| InternalError)?
+            .into(),
+        )
+        .unwrap())
+}
+
+#[derive(Debug)]
+pub struct Session {
+    id: Vec<u8>,
+    pub user_id: i64,
+}
+
+pub fn authenticate(db: DB) -> impl Filter<Extract = (Session,), Error = Rejection> + Clone {
     warp::cookie::optional(SESSION_COOKIE_NAME).and_then(move |cookie: Option<String>| {
         let db = db.clone();
         async move {
@@ -216,11 +251,14 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (i64,), Error = Rejection> 
             };
 
             let row = sqlx::query("select user_id from session where id = $1")
-                .bind(cookie)
+                .bind(&cookie)
                 .fetch_one(&db)
                 .await;
             match row {
-                Ok(row) => Ok(row.get::<i64, _>("user_id")),
+                Ok(row) => Ok(Session {
+                    id: cookie,
+                    user_id: row.get::<i64, _>("user_id"),
+                }),
                 Err(sqlx::error::Error::RowNotFound) => {
                     return Err(warp::reject::custom(Forbidden))
                 }
