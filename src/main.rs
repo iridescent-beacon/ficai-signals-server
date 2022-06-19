@@ -97,6 +97,10 @@ async fn main() -> eyre::Result<()> {
         let pool = pool.clone();
         move || get_urls(pool.clone())
     });
+    let get_tags = warp::path!("v1" / "tags").and(warp::get()).then({
+        let pool = pool.clone();
+        move || get_tags(pool.clone())
+    });
 
     // todo: graceful shutdown
     warp::serve(
@@ -105,6 +109,7 @@ async fn main() -> eyre::Result<()> {
             .or(get)
             .or(patch)
             .or(get_urls)
+            .or(get_tags)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -243,6 +248,23 @@ async fn get_urls(pool: DB) -> http::Response<hyper::Body> {
     warp::reply::json(&URLs {
         urls: sqlx::query("select distinct url from signal")
             .map(|r: PgRow| r.try_get("url").unwrap())
+            .fetch_all(&pool)
+            .await
+            .unwrap(),
+    })
+    .into_response()
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct JustTags {
+    tags: Vec<String>,
+}
+
+async fn get_tags(pool: DB) -> http::Response<hyper::Body> {
+    warp::reply::json(&JustTags {
+        tags: sqlx::query("select distinct tag from signal")
+            .map(|r: PgRow| r.try_get("tag").unwrap())
             .fetch_all(&pool)
             .await
             .unwrap(),
