@@ -75,6 +75,13 @@ async fn main() -> eyre::Result<()> {
             let pool = pool.clone();
             move |q| crate::usermgmt::log_in(q, pool.clone(), pepper, domain)
         });
+    let log_out = warp::path!("v1" / "sessions")
+        .and(warp::delete())
+        .and(authenticate(pool.clone()))
+        .and_then({
+            let pool = pool.clone();
+            move |session| crate::usermgmt::log_out(session, pool.clone(), domain)
+        });
     let get_session_user = warp::path!("v1" / "sessions")
         .and(warp::get())
         .and(authenticate(pool.clone()))
@@ -113,6 +120,7 @@ async fn main() -> eyre::Result<()> {
     warp::serve(
         create_user
             .or(log_in)
+            .or(log_out)
             .or(get_session_user)
             .or(get)
             .or(patch)

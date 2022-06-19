@@ -57,7 +57,7 @@ async fn create_session(uid: i64, db: &DB) -> eyre::Result<String> {
     Ok(base64ct::Base64Unpadded::encode_string(&session_id))
 }
 
-fn create_session_cookie(session_id: String, domain: &str) -> String {
+fn session_cookie<'a>(session_id: &'a str, domain: &'a str) -> cookie::Cookie<'a> {
     cookie::Cookie::build(SESSION_COOKIE_NAME, session_id)
         .domain(domain)
         .path("/")
@@ -65,7 +65,16 @@ fn create_session_cookie(session_id: String, domain: &str) -> String {
         .http_only(true)
         .permanent()
         .finish()
-        .to_string()
+}
+
+fn create_session_cookie(session_id: &str, domain: &str) -> String {
+    session_cookie(session_id, domain).to_string()
+}
+
+fn remove_session_cookie(domain: &str) -> String {
+    let mut c = session_cookie("", domain);
+    c.make_removal();
+    c.to_string()
 }
 
 #[derive(Deserialize, Debug)]
@@ -126,7 +135,7 @@ pub async fn create_user(
             return Err(warp::reject::custom(InternalError));
         }
     };
-    let session_id_cookie = create_session_cookie(session_id_string, domain);
+    let session_id_cookie = create_session_cookie(&session_id_string, domain);
     Ok(Response::builder()
         .status(StatusCode::CREATED)
         .header(SET_COOKIE, session_id_cookie)
@@ -183,7 +192,7 @@ pub async fn log_in(
             return Err(warp::reject::custom(InternalError));
         }
     };
-    let session_id_cookie = create_session_cookie(session_id_string, domain);
+    let session_id_cookie = create_session_cookie(&session_id_string, domain);
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(SET_COOKIE, session_id_cookie)
@@ -196,6 +205,30 @@ pub async fn log_in(
             .into(),
         )
         .unwrap())
+}
+
+pub async fn log_out(
+    session: Session,
+    pool: DB,
+    domain: &str,
+) -> Result<Response<Body>, Rejection> {
+    if 1 == sqlx::query("delete from session where id = $1")
+        .bind(&session.id)
+        .execute(&pool)
+        .await
+        .map_err(|_e| InternalError)?
+        .rows_affected()
+    {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header(SET_COOKIE, remove_session_cookie(domain))
+            .body("{}".into())
+            .unwrap())
+    } else {
+        // This may mean the user was deleted inbetween validating their session and getting to
+        // this point, which means the current request is racing against a delete.
+        Err(warp::reject::custom(InternalError))
+    }
 }
 
 pub async fn get_session_user(session: Session, pool: DB) -> Result<Response<Body>, Rejection> {

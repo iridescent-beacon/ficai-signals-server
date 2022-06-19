@@ -213,6 +213,22 @@ testGetSessionUser() {
   assertEquals "$TEST_UID" "$( extractUid )"
 }
 
+testLogOut() {
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  request "http://$FICAI_LISTEN/v1/sessions" -X DELETE
+
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+}
+
+testLogOutSecondTime() {
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+  request "http://$FICAI_LISTEN/v1/sessions" -X DELETE
+
+  assertEquals 'HTTP/1.1 403 Forbidden' "$( headers_line 1 )"
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+}
+
 testLogIn() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \

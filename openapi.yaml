@@ -57,6 +57,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Account"
+    delete:
+      summary: Log out.
+      operationId: logOut
+      tags:
+        - sessions
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Success
   /signals:
     get:
       summary: Get signals for a fic.
