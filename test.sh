@@ -6,7 +6,7 @@ export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSW
 TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
-TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
+TEST_URL="https://forums.spacebattles.com/threads/nemesis-worm-au.747148/"
 TEST_UID="none"
 
 DEBUG=no
@@ -132,6 +132,9 @@ oneTimeSetUp() {
   sleep 1
 
   rm -f test.cookies
+
+  local CONN="postgresql://${FICAI_DB_USERNAME}:${FICAI_DB_PASSWORD}@${FICAI_DB_HOST}:${FICAI_DB_PORT}/${FICAI_DB_DATABASE}"
+  psql ${CONN} -c 'truncate table signal'
 }
 
 oneTimeTearDown() {
@@ -285,12 +288,12 @@ testLogInWithWrongPassword() {
 testGetTags() {
   request "http://$FICAI_LISTEN/v1/tags"
   assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
-  assertEquals 'worm' "$( extractFirstTag )"
+  assertEquals 'taylor hebert' "$( extractFirstTag )"
 
   request "http://$FICAI_LISTEN/v1/tags" \
-    -G --data-urlencode "q=taylor"
+    -G --data-urlencode "q=worm"
   assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
-  assertEquals 'taylor' "$( extractFirstTag )"
+  assertEquals 'worm' "$( extractFirstTag )"
 }
 
 testGetBex() {
@@ -303,6 +306,14 @@ testGetBex() {
   assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
   assertEquals true "$( extractRetired )"
   assertEquals "v0.1.0-6e6c4b2" "$( extractCurrentVersion )"
+}
+
+testGetFic() {
+  request "http://$FICAI_LISTEN/v1/fics" \
+    -G --data-urlencode "url=${TEST_URL}"
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertEquals 'NtePoQrV' "$(jq -r '.id' "$SHUNIT_TMPDIR/out")"
+  assertEquals 'Nemesis' "$(jq -r '.title' "$SHUNIT_TMPDIR/out")"
 }
 
 source shunit2

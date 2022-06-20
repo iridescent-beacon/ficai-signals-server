@@ -11,6 +11,7 @@ use warp::{Filter as _, Reply};
 use crate::httputil::recover_custom;
 use crate::usermgmt::{authenticate, optional_authenticate, Session};
 
+mod fichub;
 mod httputil;
 mod usermgmt;
 
@@ -126,6 +127,14 @@ async fn main() -> eyre::Result<()> {
             move |v| get_bex_version(v, pool.clone())
         });
 
+    let get_fics = warp::path!("v1" / "fics")
+        .and(warp::get())
+        .and(warp::query::<GetFicsQ>())
+        .then({
+            let pool = pool.clone();
+            move |q| get_fics(q, pool.clone())
+        });
+
     // todo: graceful shutdown
     warp::serve(
         create_user
@@ -137,6 +146,7 @@ async fn main() -> eyre::Result<()> {
             .or(get_urls)
             .or(get_tags)
             .or(get_bex_version)
+            .or(get_fics)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -340,4 +350,13 @@ async fn get_bex_version(v: String, _pool: DB) -> http::Response<hyper::Body> {
         current_version: BEX_CURRENT_VERSION.to_string(),
     })
     .into_response()
+}
+
+#[derive(Deserialize, Debug)]
+struct GetFicsQ {
+    url: String,
+}
+
+async fn get_fics(q: GetFicsQ, _pool: DB) -> http::Response<hyper::Body> {
+    warp::reply::json(&fichub::meta(&q.url).await.unwrap()).into_response()
 }
