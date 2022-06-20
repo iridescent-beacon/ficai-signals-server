@@ -190,7 +190,9 @@ testCreateUserSecondTime() {
 testGetEmptySignals() {
   request_get
   assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
-  assertEquals '{"tags":[]}' "$(cat "$SHUNIT_TMPDIR/out")"
+  assertEquals '[]' "$(jq '.tags' "$SHUNIT_TMPDIR/out")"
+  assertEquals 'NtePoQrV' "$(jq -r '.fic.id' "$SHUNIT_TMPDIR/out")"
+  assertEquals 'Nemesis' "$(jq -r '.fic.title' "$SHUNIT_TMPDIR/out")"
 }
 
 testAdd() {

@@ -173,6 +173,7 @@ struct TagInfo {
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Tags {
+    fic: Fic,
     tags: Vec<TagInfo>,
 }
 
@@ -181,34 +182,41 @@ async fn get_signals(
     url: String,
     pool: DB,
 ) -> http::Response<hyper::Body> {
-    let mut rows = sqlx::query(
-        "
-select
-	tag,
-	sum(case when signal then 1 else 0 end) as total_for,
-    sum(case when signal then 0 else 1 end) as total_against,
-    bool_or(signal) filter (where user_id = $1) as my_signal
-from signal
-where url = $2
-group by tag
-",
-    )
-    .bind(session.as_ref().map(|s| s.user_id))
-    .bind(url)
-    .fetch(&pool);
+    // todo: sane error handling
+    let fic = lookup(&url, pool.clone()).await.unwrap();
 
-    let mut tags = Vec::new();
-    while let Some(row) = rows.try_next().await.unwrap() {
-        let tag_info = TagInfo {
-            tag: row.try_get("tag").unwrap(),
-            signals_for: row.try_get("total_for").unwrap(),
-            signals_against: row.try_get("total_against").unwrap(),
-            signal: row.try_get("my_signal").unwrap(),
-        };
-        tags.push(tag_info);
-    }
+    let tags = {
+        let mut rows = sqlx::query(
+            "
+    select
+      tag,
+      sum(case when signal then 1 else 0 end) as total_for,
+        sum(case when signal then 0 else 1 end) as total_against,
+        bool_or(signal) filter (where user_id = $1) as my_signal
+    from signal
+    where fic_id = $2
+    group by tag
+    ",
+        )
+        .bind(session.as_ref().map(|s| s.user_id))
+        .bind(&fic.id)
+        .fetch(&pool);
 
-    let tags = Tags { tags };
+        let mut tags = Vec::new();
+        while let Some(row) = rows.try_next().await.unwrap() {
+            let tag_info = TagInfo {
+                tag: row.try_get("tag").unwrap(),
+                signals_for: row.try_get("total_for").unwrap(),
+                signals_against: row.try_get("total_against").unwrap(),
+                signal: row.try_get("my_signal").unwrap(),
+            };
+            tags.push(tag_info);
+        }
+
+        tags
+    };
+
+    let tags = Tags { fic, tags };
     warp::reply::json(&tags).into_response()
 }
 
@@ -226,18 +234,19 @@ struct PatchQuery {
 
 async fn patch(session: Session, q: PatchQuery, pool: DB) -> impl Reply {
     // todo: sane error handling
+    let fic = lookup(&q.url, pool.clone()).await.unwrap();
 
     for tag in q.add {
         println!("add {}", &tag);
         sqlx::query(
             "
-insert into signal (user_id, url, tag, signal)
+insert into signal (user_id, fic_id, tag, signal)
 values ($1, $2, $3, $4)
-on conflict (user_id, url, tag) do update set signal = $4
+on conflict (user_id, fic_id, tag) do update set signal = $4
         ",
         )
         .bind(&session.user_id)
-        .bind(&q.url)
+        .bind(&fic.id)
         .bind(tag)
         .bind(true)
         .execute(&pool)
@@ -249,13 +258,13 @@ on conflict (user_id, url, tag) do update set signal = $4
         println!("rm {}", &tag);
         sqlx::query(
             "
-insert into signal (user_id, url, tag, signal)
+insert into signal (user_id, fic_id, tag, signal)
 values ($1, $2, $3, $4)
-on conflict (user_id, url, tag) do update set signal = $4
+on conflict (user_id, fic_id, tag) do update set signal = $4
         ",
         )
         .bind(&session.user_id)
-        .bind(&q.url)
+        .bind(&fic.id)
         .bind(tag)
         .bind(false)
         .execute(&pool)
@@ -265,9 +274,9 @@ on conflict (user_id, url, tag) do update set signal = $4
 
     for tag in q.erase {
         println!("erase {}", &tag);
-        sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
+        sqlx::query("delete from signal where user_id = $1 and fic_id = $2 and tag = $3")
             .bind(&session.user_id)
-            .bind(&q.url)
+            .bind(&fic.id)
             .bind(tag)
             .execute(&pool)
             .await
@@ -287,7 +296,7 @@ struct URLs {
 
 async fn get_urls(pool: DB) -> http::Response<hyper::Body> {
     warp::reply::json(&URLs {
-        urls: sqlx::query("select distinct url from signal")
+        urls: sqlx::query("select distinct url from fic")
             .map(|r: PgRow| r.try_get("url").unwrap())
             .fetch_all(&pool)
             .await
@@ -357,6 +366,79 @@ struct GetFicsQ {
     url: String,
 }
 
-async fn get_fics(q: GetFicsQ, _pool: DB) -> http::Response<hyper::Body> {
-    warp::reply::json(&fichub::meta(&q.url).await.unwrap()).into_response()
+async fn get_fics(q: GetFicsQ, pool: DB) -> http::Response<hyper::Body> {
+    warp::reply::json(&lookup(&q.url, pool).await.unwrap()).into_response()
+}
+
+#[derive(Serialize, Debug)]
+pub struct Fic {
+    id: String,
+    title: String,
+}
+
+pub async fn lookup_cached(url: &str, pool: DB) -> eyre::Result<Option<Fic>> {
+    Ok(sqlx::query(
+        "
+            select f.id, f.title
+            from fic_url_cache c
+            join fic f on f.id = c.fic_id
+            where c.url = $1
+        ",
+    )
+    .bind(&url)
+    .map(|r: PgRow| Fic {
+        id: r.try_get("id").unwrap(),
+        title: r.try_get("title").unwrap(),
+    })
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| eyre!("failed to query fic_url_cache: {:?}", e))?)
+}
+
+pub async fn lookup(url: &str, pool: DB) -> eyre::Result<Fic> {
+    if let Some(fic) = lookup_cached(url, pool.clone()).await? {
+        return Ok(fic);
+    }
+
+    // todo: sane error handling
+    let fic = fichub::meta(&url)
+        .await
+        .expect("failed to retrieve fic meta")
+        .expect("retrieved null fic meta");
+
+    // Insert actual fic record.
+    sqlx::query(
+        "
+            insert into fic(id, url, title)
+            values($1, $2, $3)
+            on conflict(id) do update set
+                url = EXCLUDED.url,
+                title = EXCLUDED.title
+        ",
+    )
+    .bind(&fic.id)
+    .bind(&fic.source)
+    .bind(&fic.title)
+    .execute(&pool)
+    .await
+    .map_err(|e| eyre!("failed to insert fic: {:?}", e))?;
+
+    // Insert url lookup cache entry.
+    sqlx::query(
+        "
+            insert into fic_url_cache(url, fic_id, fetched)
+            values($1, $2, now())
+            on conflict do nothing
+        ",
+    )
+    .bind(&url)
+    .bind(&fic.id)
+    .execute(&pool)
+    .await
+    .map_err(|e| eyre!("failed to insert fic_url_cache: {:?}", e))?;
+
+    Ok(Fic {
+        id: fic.id,
+        title: fic.title,
+    })
 }

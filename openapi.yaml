@@ -89,7 +89,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Tags"
+                $ref: "#/components/schemas/SignalsResponse"
     patch:
       summary: Update signals for a fic.
       operationId: patchSignals
@@ -282,12 +282,15 @@ components:
           description: Number of accounts with negative signals.
           type: integer
           format: int64
-    Tags:
-      description: List af tags for a specific fic.
+    SignalsResponse:
+      description: Signals for a specific fic.
       type: object
       required:
+        - fic
         - tags
       properties:
+        fic:
+          $ref: "#/components/schemas/Fic"
         tags:
           description: The list of tags for this fic.
           type: array
