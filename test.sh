@@ -99,6 +99,14 @@ extractFirstTag() {
   <"$SHUNIT_TMPDIR/out" jq -r ".tags[0]"
 }
 
+extractRetired() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".retired"
+}
+
+extractCurrentVersion() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".current_version"
+}
+
 assertSignal() {
   local TAG="$( extractSignal "$1" )"
   assertEquals "$1" "$2" "$(echo "$TAG" | jq -r '.signal')"
@@ -283,6 +291,18 @@ testGetTags() {
     -G --data-urlencode "q=taylor"
   assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
   assertEquals 'taylor' "$( extractFirstTag )"
+}
+
+testGetBex() {
+  request "http://$FICAI_LISTEN/v1/bex/versions/v0.1.0"
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertEquals false "$( extractRetired )"
+  assertEquals "v0.1.0-6e6c4b2" "$( extractCurrentVersion )"
+
+  request "http://$FICAI_LISTEN/v1/bex/versions/v0.0.0"
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertEquals true "$( extractRetired )"
+  assertEquals "v0.1.0-6e6c4b2" "$( extractCurrentVersion )"
 }
 
 source shunit2

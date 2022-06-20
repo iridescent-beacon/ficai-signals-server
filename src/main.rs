@@ -119,6 +119,13 @@ async fn main() -> eyre::Result<()> {
             move |q| get_tags(q, pool.clone())
         });
 
+    let get_bex_version = warp::path!("v1" / "bex" / "versions" / String)
+        .and(warp::get())
+        .then({
+            let pool = pool.clone();
+            move |v| get_bex_version(v, pool.clone())
+        });
+
     // todo: graceful shutdown
     warp::serve(
         create_user
@@ -129,6 +136,7 @@ async fn main() -> eyre::Result<()> {
             .or(patch)
             .or(get_urls)
             .or(get_tags)
+            .or(get_bex_version)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -314,6 +322,22 @@ async fn get_tags(q: GetTagsQ, pool: DB) -> http::Response<hyper::Body> {
         .fetch_all(&pool)
         .await
         .unwrap(),
+    })
+    .into_response()
+}
+
+#[derive(Serialize)]
+struct Bex {
+    retired: bool,
+    current_version: String,
+}
+
+const BEX_CURRENT_VERSION: &str = "v0.1.0-6e6c4b2";
+
+async fn get_bex_version(v: String, _pool: DB) -> http::Response<hyper::Body> {
+    warp::reply::json(&Bex {
+        retired: v == "v0.0.0",
+        current_version: BEX_CURRENT_VERSION.to_string(),
     })
     .into_response()
 }
