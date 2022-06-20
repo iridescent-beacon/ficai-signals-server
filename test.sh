@@ -95,6 +95,10 @@ extractSignal() {
   <"$SHUNIT_TMPDIR/out" jq -r ".tags[]|select(.tag==\"$1\")"
 }
 
+extractFirstTag() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".tags[0]"
+}
+
 assertSignal() {
   local TAG="$( extractSignal "$1" )"
   assertEquals "$1" "$2" "$(echo "$TAG" | jq -r '.signal')"
@@ -268,6 +272,17 @@ testLogInWithWrongPassword() {
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"wrong pass\"}"
 
   assertEquals 'HTTP/1.1 403 Forbidden' "$( headers_line 1 )"
+}
+
+testGetTags() {
+  request "http://$FICAI_LISTEN/v1/tags"
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertEquals 'worm' "$( extractFirstTag )"
+
+  request "http://$FICAI_LISTEN/v1/tags" \
+    -G --data-urlencode "q=taylor"
+  assertEquals 'HTTP/1.1 200 OK' "$( headers_line 1 )"
+  assertEquals 'taylor' "$( extractFirstTag )"
 }
 
 source shunit2
